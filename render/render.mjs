@@ -5,6 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { card } from './card.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WORK = path.join(HERE, '..', 'work');
@@ -101,32 +102,6 @@ async function collect() {
   return { target, recs };
 }
 
-// ---- 通知カード ----
-const TITLE = { VXSE51: '震度速報', VXSE52: '震源に関する情報', VXSE53: '震源・震度に関する情報' };
-const INTLABEL = { '5-': '5弱', '5+': '5強', '6-': '6弱', '6+': '6強' };
-const COLOR = { '1': 0xc8d4e8, '2': 0x00aaff, '3': 0x0041ff, '4': 0xfae696, '5-': 0xffa000, '5+': 0xff6a00, '6-': 0xff2800, '6+': 0xa50021, '7': 0xb40068 };
-const TSU = { none: '津波の心配なし', checking: '津波調査中', 'non-effective': '若干の海面変動', warning: '津波警報等発表中' };
-function jstText(s) {
-  const d = new Date(new Date(s).getTime() + 9 * 3600e3); if (isNaN(d)) return '調査中';
-  return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日 ${String(d.getUTCHours()).padStart(2, '0')}時${String(d.getUTCMinutes()).padStart(2, '0')}分ごろ`;
-}
-function card(d, serial) {
-  const lines = [];
-  if (d.maxInt) lines.push(`**最大震度 ${INTLABEL[d.maxInt] || d.maxInt}**`);
-  lines.push(`**発生** ${jstText(d.origin)}`);
-  lines.push(`**震源** ${d.hy && d.hy.name ? d.hy.name : '調査中'}　**規模** ${d.mag}　**深さ** ${d.depth}`);
-  lines.push(`**津波** ${TSU[d.tsunami] || '調査中'}`);
-  if (d.eew) lines.push('緊急地震速報を発表しています');
-  if (d.enchi) lines.push('遠地地震に関する情報です');
-  return {
-    title: (d.enchi ? '【遠地】' : '') + (TITLE[d.head] || '地震情報'),
-    description: lines.join('\n'),
-    color: COLOR[d.maxInt] || 0x555555,
-    image: { url: 'attachment://quake.png' },
-    footer: { text: `GenLab Quake Bot　第${serial}報` },
-    timestamp: new Date().toISOString()
-  };
-}
 async function post(png, embed) {
   if (!HOOK) { console.log('DISCORD_WEBHOOK_URL が未設定のため、投稿は行いません'); return; }
   const fd = new FormData();

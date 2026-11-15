@@ -337,6 +337,8 @@ window.renderQuake = async function (recs) {
   render(c, d, fitView(d, false), false, cfg.panel !== false);
   return {
     png: cv.toDataURL('image/png'),
-    d: { head: d.head, serial: d.serial, maxInt: d.maxInt, hy: d.hy, mag: d.mag, depth: d.depth, tsunami: d.tsunami, eew: d.eew, enchi: d.enchi, origin: d.origin, cities: d.cities.length, regions: d.regions.length }
+    d: { head: d.head, serial: d.serial, maxInt: d.maxInt, hy: d.hy, mag: d.mag, depth: d.depth, tsunami: d.tsunami, eew: d.eew, enchi: d.enchi, origin: d.origin, cities: d.cities.length, regions: d.regions.length,
+      topCities: d.cities.filter(r => r.int === d.maxInt).map(r => ({ code: String(r.code), name: r.name })),
+      topRegions: d.regions.filter(r => r.int === d.maxInt).map(r => ({ code: String(r.code), name: r.name })) }
   };
 };
