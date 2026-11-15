@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WORK = path.join(HERE, '..', 'work');
 const OUT = path.join(HERE, '..', 'out');
-const ASSET_BASE = (process.env.ASSET_BASE || 'https://assets.kactuif.com/quake/').replace(/\/?$/, '/');
+const ASSET_BASE = (process.env.ASSET_BASE || 'https://assets.kactuif.com/quake/data/').replace(/\/?$/, '/');
 const API = (process.env.DMDATA_BASE_URL || '').replace(/\/$/, '');
 const KEY = process.env.DMDATA_API_KEY || '';
 const TID = (process.env.TELEGRAM_ID || '').trim();
