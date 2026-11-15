@@ -39,6 +39,7 @@ jobs:
           DMDATA_BASE_URL: ${{ secrets.DMDATA_BASE_URL }}
           DMDATA_API_KEY: ${{ secrets.DMDATA_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
         run: node render/render.mjs
 
       - uses: actions/upload-artifact@v4
