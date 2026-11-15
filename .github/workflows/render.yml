@@ -1,0 +1,50 @@
+name: render
+
+on:
+  workflow_dispatch:
+    inputs:
+      telegram_id:
+        description: 'DMDATAの電文ID（/api/telegramsのid）'
+        required: true
+  repository_dispatch:
+    types: [quake]
+
+concurrency:
+  group: render-${{ github.event.inputs.telegram_id || github.event.client_payload.telegram_id }}
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 日本語フォントを導入
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-morisawa-bizud-gothic fonts-noto-cjk
+          fc-list | grep -i "BIZ UD" | head -3 || true
+
+      - run: npm install --no-audit --no-fund
+
+      - name: 通知カードを作成して投稿
+        env:
+          TELEGRAM_ID: ${{ github.event.inputs.telegram_id || github.event.client_payload.telegram_id }}
+          DMDATA_BASE_URL: ${{ secrets.DMDATA_BASE_URL }}
+          DMDATA_API_KEY: ${{ secrets.DMDATA_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: node render/render.mjs
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quake-card
+          path: out/
+          retention-days: 3
+          if-no-files-found: ignore
