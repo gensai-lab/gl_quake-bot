@@ -14,6 +14,13 @@ const API = (process.env.DMDATA_BASE_URL || '').replace(/\/$/, '');
 const KEY = process.env.DMDATA_API_KEY || '';
 const TID = (process.env.TELEGRAM_ID || '').trim();
 const HOOK = process.env.DISCORD_WEBHOOK_URL || '';
+const BOT = process.env.DISCORD_BOT_TOKEN || '';
+// 通知先チャンネルはイベントのファイルから読む（環境変数にするとログに表示されるため）
+let CHANNELS = [];
+try {
+  const ev = JSON.parse(await fs.readFile(process.env.GITHUB_EVENT_PATH, 'utf8'));
+  if (ev.client_payload && Array.isArray(ev.client_payload.channels)) CHANNELS = ev.client_payload.channels.filter(c => c && /^\d+$/.test(String(c.id)));
+} catch { }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 if (!API || !KEY || !TID) { console.error('DMDATA_BASE_URL / DMDATA_API_KEY / TELEGRAM_ID が必要です'); process.exit(1); }
@@ -130,6 +137,31 @@ async function post(png, embed) {
   console.log('Discordへ投稿しました');
 }
 
+const RANK = { '1': 1, '2': 2, '3': 3, '4': 4, '5-': 5, '5+': 6, '6-': 7, '6+': 8, '7': 9 };
+// 最大震度が分からない情報（震源のみ・遠地など）は、最低震度が3以下の通知先へ送る
+const wants = (c, maxInt) => (RANK[c.min] || 1) <= (maxInt ? RANK[maxInt] || 1 : 3);
+async function postBot(png, embed, maxInt) {
+  if (!CHANNELS.length) return;
+  if (!BOT) { console.warn('::warning::DISCORD_BOT_TOKEN が未設定のためBot投稿をスキップします'); return; }
+  const targets = CHANNELS.filter(c => wants(c, maxInt));
+  console.log(`Bot投稿先: ${targets.length}/${CHANNELS.length}件（最大震度 ${maxInt || '不明'}）`);
+  let ok = 0;
+  for (const c of targets) {
+    for (let t = 0; t < 3; t++) {
+      const fd = new FormData();
+      fd.append('payload_json', JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] } }));
+      fd.append('files[0]', new Blob([png], { type: 'image/png' }), 'quake.png');
+      const r = await fetch(`https://discord.com/api/v10/channels/${c.id}/messages`, { method: 'POST', headers: { Authorization: 'Bot ' + BOT }, body: fd });
+      if (r.ok) { ok++; break; }
+      if (r.status === 429) { const j = await r.json().catch(() => ({})); await sleep((j.retry_after || 1) * 1000 + 100); continue; }
+      console.warn('::warning::投稿に失敗 HTTP ' + r.status + ' ' + (await r.text()).slice(0, 100));
+      break;
+    }
+  }
+  console.log(`Botで投稿: ${ok}/${targets.length}件`);
+  if (targets.length && !ok) throw new Error('すべての投稿先への投稿に失敗しました');
+}
+
 // ---- 実行 ----
 const t0 = Date.now();
 const got = await collect();
@@ -157,5 +189,7 @@ try {
   await fs.writeFile(path.join(OUT, 'meta.json'), JSON.stringify(res.d, null, 2));
   if (pageErrors.length) console.error('::warning::描画中に問題がありました:\n' + pageErrors.join('\n'));
   console.log('描画完了', JSON.stringify(res.d), (Date.now() - t0) + 'ms');
-  await post(png, card(res.d, res.d.serial));
+  const embed = card(res.d, res.d.serial);
+  await postBot(png, embed, res.d.maxInt);
+  await post(png, embed);
 } finally { await browser.close(); srv.close(); }
