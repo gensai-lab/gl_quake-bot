@@ -43,6 +43,7 @@ function assetList() {
   ['world', 'saibun', 'pref', 'shionuma', 'city'].forEach(k => L.push(`map/${k}.json`));
   return L;
 }
+const failed = [];
 async function download(f) {
   const dst = path.join(WORK, 'data', f);
   await fs.mkdir(path.dirname(dst), { recursive: true });
@@ -54,7 +55,8 @@ async function download(f) {
     } catch (e) { console.warn('素材エラー', f, e.message); }
     await sleep(500 * (t + 1));
   }
-  console.warn('素材を取得できませんでした: ' + f);
+  failed.push(f);
+  console.error('::error::素材を取得できませんでした: ' + f);
 }
 async function downloadAll() {
   const L = assetList(); let i = 0;
@@ -134,11 +136,18 @@ const got = await collect();
 if (!got) process.exit(0);
 await fs.mkdir(OUT, { recursive: true });
 await downloadAll();
+if (failed.length) { console.error('素材の取得に失敗したため中断します（' + failed.length + '件）: ' + failed.join(', ')); process.exit(1); }
+const sizes = [];
+for (const f of assetList().filter(x => x.startsWith('map/'))) sizes.push(f + '=' + (await fs.stat(path.join(WORK, 'data', f))).size + 'B');
+console.log('地図ファイル: ' + sizes.join(' '));
 const srv = await serve();
 const browser = await chromium.launch({ channel: 'chrome', args: ['--no-sandbox'] });
 try {
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
-  page.on('console', m => console.log('[page]', m.text()));
+  const pageErrors = [];
+  page.on('console', m => { console.log('[page]', m.text()); if (/^\[(error|warn)\]/.test(m.text())) pageErrors.push(m.text()); });
+  page.on('requestfailed', r => { console.error('[requestfailed]', r.url()); pageErrors.push('requestfailed ' + r.url()); });
+  page.on('response', r => { if (r.status() >= 400) { console.error('[http' + r.status() + ']', r.url()); pageErrors.push('http' + r.status() + ' ' + r.url()); } });
   page.on('pageerror', e => console.error('[pageerror]', e.message));
   await page.goto(`http://127.0.0.1:${srv.address().port}/render.html`);
   const res = await page.evaluate(recs => window.renderQuake(recs), got.recs);
@@ -146,6 +155,7 @@ try {
   const png = Buffer.from(res.png.split(',')[1], 'base64');
   await fs.writeFile(path.join(OUT, 'quake.png'), png);
   await fs.writeFile(path.join(OUT, 'meta.json'), JSON.stringify(res.d, null, 2));
+  if (pageErrors.length) console.error('::warning::描画中に問題がありました:\n' + pageErrors.join('\n'));
   console.log('描画完了', JSON.stringify(res.d), (Date.now() - t0) + 'ms');
   await post(png, card(res.d, res.d.serial));
 } finally { await browser.close(); srv.close(); }
