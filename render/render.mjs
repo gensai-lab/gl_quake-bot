@@ -191,5 +191,7 @@ try {
   console.log('描画完了', JSON.stringify(res.d), (Date.now() - t0) + 'ms');
   const embed = card(res.d, res.d.serial);
   await postBot(png, embed, res.d.maxInt);
-  await post(png, embed);
+  // テスト用Webhookは任意。Bot投稿の通知先がある場合、Webhookの失敗では全体を失敗にしない
+  try { await post(png, embed); }
+  catch (e) { if (CHANNELS.length) console.warn('::warning::Webhook投稿に失敗（Bot投稿は実施済み）: ' + e.message); else throw e; }
 } finally { await browser.close(); srv.close(); }
