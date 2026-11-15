@@ -1,0 +1,151 @@
+// GenLab Quake Bot: 電文IDから通知カード(文章+画像)を作り、Discordへ送る
+// 環境変数: TELEGRAM_ID, DMDATA_BASE_URL, DMDATA_API_KEY, DISCORD_WEBHOOK_URL(任意)
+import { chromium } from 'playwright-core';
+import http from 'node:http';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const WORK = path.join(HERE, '..', 'work');
+const OUT = path.join(HERE, '..', 'out');
+const ASSET_BASE = (process.env.ASSET_BASE || 'https://assets.kactuif.com/quake/').replace(/\/?$/, '/');
+const API = (process.env.DMDATA_BASE_URL || '').replace(/\/$/, '');
+const KEY = process.env.DMDATA_API_KEY || '';
+const TID = (process.env.TELEGRAM_ID || '').trim();
+const HOOK = process.env.DISCORD_WEBHOOK_URL || '';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+if (!API || !KEY || !TID) { console.error('DMDATA_BASE_URL / DMDATA_API_KEY / TELEGRAM_ID が必要です'); process.exit(1); }
+
+async function api(p, q = {}) {
+  const u = new URL(API + p);
+  Object.entries(q).forEach(([k, v]) => u.searchParams.set(k, v));
+  for (let t = 0; t < 3; t++) {
+    try {
+      const r = await fetch(u, { headers: { 'X-API-Key': KEY } });
+      if (r.ok) return await r.json();
+      if (r.status === 404) return null;
+      console.warn('API HTTP', r.status, p);
+    } catch (e) { console.warn('API error', e.message); }
+    await sleep(800 * (t + 1));
+  }
+  throw new Error('API取得に失敗: ' + p);
+}
+
+// ---- 素材を取得して、同一オリジンのローカルサーバーから配る（canvasを汚染させないため） ----
+const IMAP = ['0', '1', '2', '3', '4', '5m', '5p', '6m', '6p', '7', 'u'];
+function assetList() {
+  const L = ['datacover.png', 'icon/shingen.png'];
+  IMAP.forEach(k => L.push(`icon/s${k}.svg`, `icon/m${k}.svg`));
+  ['1', '2', '3', '4', '5m', '5p', '6m', '6p', '7', 'enchi', 'nodata'].forEach(k => L.push(`banner/${k}.svg`));
+  ['checking', 'eew', 'enchi', 'non-effective', 'none', 'warning'].forEach(k => L.push(`info/${k}.svg`));
+  ['world', 'saibun', 'pref', 'shionuma', 'city'].forEach(k => L.push(`map/${k}.json`));
+  return L;
+}
+async function download(f) {
+  const dst = path.join(WORK, 'data', f);
+  await fs.mkdir(path.dirname(dst), { recursive: true });
+  for (let t = 0; t < 4; t++) {
+    try {
+      const r = await fetch(ASSET_BASE + f);
+      if (r.ok) { await fs.writeFile(dst, Buffer.from(await r.arrayBuffer())); return; }
+      console.warn('素材HTTP', r.status, f);
+    } catch (e) { console.warn('素材エラー', f, e.message); }
+    await sleep(500 * (t + 1));
+  }
+  console.warn('素材を取得できませんでした: ' + f);
+}
+async function downloadAll() {
+  const L = assetList(); let i = 0;
+  await Promise.all(Array.from({ length: 6 }, async () => { while (i < L.length) await download(L[i++]); }));
+}
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+function serve() {
+  const srv = http.createServer(async (req, res) => {
+    const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    const file = p.startsWith('/data/') ? path.join(WORK, p) : path.join(HERE, p === '/' ? 'render.html' : p);
+    if (!path.resolve(file).startsWith(path.resolve(WORK)) && !path.resolve(file).startsWith(path.resolve(HERE))) { res.writeHead(403); return res.end(); }
+    try { const b = await fs.readFile(file); res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' }); res.end(b); }
+    catch { res.writeHead(404); res.end(); }
+  });
+  return new Promise(r => srv.listen(0, '127.0.0.1', () => r(srv)));
+}
+
+// ---- 電文の取得: 対象電文と、同じ地震(eventId)のそれまでの電文 ----
+const KINDS = ['VXSE51', 'VXSE52', 'VXSE53'];   // 震度速報 / 震源に関する情報 / 震源・震度に関する情報
+const parseBody = r => { let b = r.body; if (typeof b === 'string') { try { b = JSON.parse(b); } catch { return null; } } return b && typeof b === 'object' ? b : null; };
+async function collect() {
+  const target = await api('/api/telegrams/' + encodeURIComponent(TID));
+  if (!target) throw new Error('電文が見つかりません: ' + TID);
+  if (target.test) { console.log('訓練・試験の電文のため通知しません'); return null; }
+  if (!KINDS.includes(target.headType)) { console.log('対象外の種別です: ' + target.headType); return null; }
+  const tb = parseBody(target); if (!tb) throw new Error('本文を解析できません');
+  const tt = new Date(target.time).getTime();
+  const list = await api('/api/telegrams', {
+    since: new Date(tt - 24 * 3600e3).toISOString(), until: new Date(tt + 1000).toISOString(), test: 'no', limit: 500
+  });
+  const eid = tb.eventId || target.id;
+  const recs = (list.items || []).filter(r => KINDS.includes(r.headType) && new Date(r.time).getTime() <= tt && (parseBody(r) || {}).eventId === eid);
+  if (!recs.some(r => r.id === target.id)) recs.push(target);
+  recs.sort((a, b) => new Date(a.time) - new Date(b.time) || (a.id < b.id ? -1 : 1));
+  return { target, recs };
+}
+
+// ---- 通知カード ----
+const TITLE = { VXSE51: '震度速報', VXSE52: '震源に関する情報', VXSE53: '震源・震度に関する情報' };
+const INTLABEL = { '5-': '5弱', '5+': '5強', '6-': '6弱', '6+': '6強' };
+const COLOR = { '1': 0xc8d4e8, '2': 0x00aaff, '3': 0x0041ff, '4': 0xfae696, '5-': 0xffa000, '5+': 0xff6a00, '6-': 0xff2800, '6+': 0xa50021, '7': 0xb40068 };
+const TSU = { none: '津波の心配なし', checking: '津波調査中', 'non-effective': '若干の海面変動', warning: '津波警報等発表中' };
+function jstText(s) {
+  const d = new Date(new Date(s).getTime() + 9 * 3600e3); if (isNaN(d)) return '調査中';
+  return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日 ${String(d.getUTCHours()).padStart(2, '0')}時${String(d.getUTCMinutes()).padStart(2, '0')}分ごろ`;
+}
+function card(d, serial) {
+  const lines = [];
+  if (d.maxInt) lines.push(`**最大震度 ${INTLABEL[d.maxInt] || d.maxInt}**`);
+  lines.push(`**発生** ${jstText(d.origin)}`);
+  lines.push(`**震源** ${d.hy && d.hy.name ? d.hy.name : '調査中'}　**規模** ${d.mag}　**深さ** ${d.depth}`);
+  lines.push(`**津波** ${TSU[d.tsunami] || '調査中'}`);
+  if (d.eew) lines.push('緊急地震速報を発表しています');
+  if (d.enchi) lines.push('遠地地震に関する情報です');
+  return {
+    title: (d.enchi ? '【遠地】' : '') + (TITLE[d.head] || '地震情報'),
+    description: lines.join('\n'),
+    color: COLOR[d.maxInt] || 0x555555,
+    image: { url: 'attachment://quake.png' },
+    footer: { text: `GenLab Quake Bot　第${serial}報` },
+    timestamp: new Date().toISOString()
+  };
+}
+async function post(png, embed) {
+  if (!HOOK) { console.log('DISCORD_WEBHOOK_URL が未設定のため、投稿は行いません'); return; }
+  const fd = new FormData();
+  fd.append('payload_json', JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] } }));
+  fd.append('files[0]', new Blob([png], { type: 'image/png' }), 'quake.png');
+  const r = await fetch(HOOK + (HOOK.includes('?') ? '&' : '?') + 'wait=true', { method: 'POST', body: fd });
+  if (!r.ok) throw new Error('Discord投稿に失敗 HTTP ' + r.status + ' ' + (await r.text()).slice(0, 200));
+  console.log('Discordへ投稿しました');
+}
+
+// ---- 実行 ----
+const t0 = Date.now();
+const got = await collect();
+if (!got) process.exit(0);
+await fs.mkdir(OUT, { recursive: true });
+await downloadAll();
+const srv = await serve();
+const browser = await chromium.launch({ channel: 'chrome', args: ['--no-sandbox'] });
+try {
+  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  page.on('console', m => console.log('[page]', m.text()));
+  page.on('pageerror', e => console.error('[pageerror]', e.message));
+  await page.goto(`http://127.0.0.1:${srv.address().port}/render.html`);
+  const res = await page.evaluate(recs => window.renderQuake(recs), got.recs);
+  if (!res) { console.log('表示できる情報がありません'); process.exit(0); }
+  const png = Buffer.from(res.png.split(',')[1], 'base64');
+  await fs.writeFile(path.join(OUT, 'quake.png'), png);
+  await fs.writeFile(path.join(OUT, 'meta.json'), JSON.stringify(res.d, null, 2));
+  console.log('描画完了', JSON.stringify(res.d), (Date.now() - t0) + 'ms');
+  await post(png, card(res.d, res.d.serial));
+} finally { await browser.close(); srv.close(); }
