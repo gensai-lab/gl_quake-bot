@@ -5,10 +5,11 @@ const INTLABEL = { '5-': '5弱', '5+': '5強', '6-': '6弱', '6+': '6強' };
 const COLOR = { '1': 0xc8d4e8, '2': 0x00aaff, '3': 0x0041ff, '4': 0xfae696, '5-': 0xffa000, '5+': 0xff6a00, '6-': 0xff2800, '6+': 0xa50021, '7': 0xb40068 };
 const TSUNAMI = {
   none: 'この地震による津波の心配はありません。',
-  'non-effective': 'この地震により、日本の沿岸では若干の海面変動があるかもしれませんが、被害の心配はありません。',
-  checking: '津波の有無については調査中です。',
-  warning: '津波警報等を発表中です。今後の情報に注意してください。'
+  'non-effective': 'この地震によって、若干の海面変動が見込まれますが被害の心配はありません。',
+  checking: 'この地震による津波は現在調査中です。',
+  warning: 'この地震によって、津波情報を現在発表中です。'
 };
+const TSUNAMI_UNKNOWN = 'この地震による津波は現在調査中です。';
 const MAX_TEXT = 900;   // 市町村の並びがこれを超えたら、市町村が多い都道府県から「〇〇県」だけの表記にする
 
 export function jstText(s) {
@@ -37,8 +38,8 @@ export function cityText(cities) {
 
 export function regionText(regions) {
   const names = [...regions].sort((a, b) => (String(a.code) < String(b.code) ? -1 : 1)).map(r => r.name);
-  let t = names.join('　');
-  if (t.length > MAX_TEXT) { t = t.slice(0, MAX_TEXT); t = t.slice(0, t.lastIndexOf('　')) + '　ほか'; }
+  let t = names.join('・');
+  if (t.length > MAX_TEXT) { t = t.slice(0, MAX_TEXT); t = t.slice(0, t.lastIndexOf('・')) + '・ほか'; }
   return t;
 }
 
@@ -47,14 +48,12 @@ export function card(d, serial) {
   const where = d.hy && d.hy.name ? d.hy.name : null;
   const L = [];
   L.push(where ? `${jstText(d.origin)}、${where}で地震がありました。` : `${jstText(d.origin)}、地震がありました。`);
-  if (d.head === 'VXSE51') {
-    if (lv && d.topRegions && d.topRegions.length) { L.push(`この地震で、${lv}を観測した地域は次のとおりです。`); L.push(regionText(d.topRegions)); }
-  } else {
-    if (lv && d.topCities && d.topCities.length) L.push(`この地震で、${lv}を${cityText(d.topCities)}で観測しています。`);
-    L.push(`震源地：${where || '調査中'}`, `深さ　：${d.depth}`, `規模　：${d.mag}`);
+  if (lv) {
+    if (d.head === 'VXSE51') { if (d.topRegions && d.topRegions.length) L.push(`この地震で、${lv}を${regionText(d.topRegions)}で観測しています。`); }
+    else if (d.topCities && d.topCities.length) L.push(`この地震で、${lv}を${cityText(d.topCities)}で観測しています。`);
   }
-  const tsu = TSUNAMI[d.tsunami] || (d.head === 'VXSE51' ? null : '津波の有無については調査中です。');
-  if (tsu) { L.push(''); L.push(tsu); }
+  if (d.head !== 'VXSE51') L.push(`震源地：${where || '調査中'}`, `深さ　：${d.depth}`, `規模　：${d.mag}`);
+  L.push(TSUNAMI[d.tsunami] || TSUNAMI_UNKNOWN);
   if (d.eew) L.push('この地震で、緊急地震速報が発表されています。');
   if (d.enchi) L.push('この情報は遠地地震に関するものです。');
   return {
