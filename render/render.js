@@ -324,7 +324,7 @@ function drawPanel(c, d, lg) {
 }
 
 /* ---------- 外部から呼ぶ入口 ---------- */
-window.quakeReady = Promise.all([resources(), loadMaps()]);
+window.quakeReady = Promise.all([document.fonts.load('600 56px "BIZ UDPGothic"').catch(() => []), resources(), loadMaps()]);
 // recs: 同じ地震(eventId)の電文レコード（古い順）。最後の電文の時点の表示を描画する
 window.renderQuake = async function (recs) {
   await window.quakeReady;

@@ -70,7 +70,7 @@ async function downloadAll() {
   const L = assetList(); let i = 0;
   await Promise.all(Array.from({ length: 6 }, async () => { while (i < L.length) await download(L[i++]); }));
 }
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ttf': 'font/ttf' };
 function serve() {
   const srv = http.createServer(async (req, res) => {
     const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
@@ -120,19 +120,22 @@ async function postBot(png, embed, maxInt) {
   if (!BOT) { console.warn('::warning::DISCORD_BOT_TOKEN が未設定のためBot投稿をスキップします'); return; }
   const targets = CHANNELS.filter(c => wants(c, maxInt));
   console.log(`Bot投稿先: ${targets.length}/${CHANNELS.length}件（最大震度 ${maxInt || '不明'}）`);
-  let ok = 0;
-  for (const c of targets) {
+  const one = async c => {
     for (let t = 0; t < 3; t++) {
       const fd = new FormData();
       fd.append('payload_json', JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] } }));
       fd.append('files[0]', new Blob([png], { type: 'image/png' }), 'quake.png');
       const r = await fetch(`https://discord.com/api/v10/channels/${c.id}/messages`, { method: 'POST', headers: { Authorization: 'Bot ' + BOT }, body: fd });
-      if (r.ok) { ok++; break; }
+      if (r.ok) return true;
       if (r.status === 429) { const j = await r.json().catch(() => ({})); await sleep((j.retry_after || 1) * 1000 + 100); continue; }
       console.warn('::warning::投稿に失敗 HTTP ' + r.status + ' ' + (await r.text()).slice(0, 100));
-      break;
+      return false;
     }
-  }
+    return false;
+  };
+  let ok = 0, i = 0;
+  // 8件ずつ並列で投稿する
+  await Promise.all(Array.from({ length: Math.min(8, targets.length) }, async () => { while (i < targets.length) { if (await one(targets[i++])) ok++; } }));
   console.log(`Botで投稿: ${ok}/${targets.length}件`);
   if (targets.length && !ok) throw new Error('すべての投稿先への投稿に失敗しました');
 }
