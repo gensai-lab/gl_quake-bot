@@ -6,11 +6,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { card } from './card.mjs';
+import { ASSET_BASE, assetList } from './assets.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WORK = path.join(HERE, '..', 'work');
 const OUT = path.join(HERE, '..', 'out');
-const ASSET_BASE = (process.env.ASSET_BASE || 'https://assets.kactuif.com/quake/data/').replace(/\/?$/, '/');
 const API = (process.env.DMDATA_BASE_URL || '').replace(/\/$/, '');
 const KEY = process.env.DMDATA_API_KEY || '';
 const TID = (process.env.TELEGRAM_ID || '').trim();
@@ -42,16 +42,6 @@ async function api(p, q = {}) {
 }
 
 // ---- 素材を取得して、同一オリジンのローカルサーバーから配る（canvasを汚染させないため） ----
-const IMAP = ['0', '1', '2', '3', '4', '5m', '5p', '6m', '6p', '7', 'u'];
-function assetList() {
-  const L = ['datacover.png', 'icon/shingen.png'];
-  IMAP.forEach(k => L.push(`icon/s${k}.svg`, `icon/m${k}.svg`));
-  ['1', '2', '3', '4', '5m', '5p', '6m', '6p', '7', 'enchi', 'nodata'].forEach(k => L.push(`banner/${k}.svg`));
-  ['checking', 'eew', 'enchi', 'non-effective', 'none', 'warning'].forEach(k => L.push(`info/${k}.svg`));
-  ['world', 'saibun', 'pref', 'shionuma', 'city'].forEach(k => L.push(`map/${k}.json`));
-  return L;
-}
-const failed = [];
 async function download(f) {
   const dst = path.join(WORK, 'data', f);
   await fs.mkdir(path.dirname(dst), { recursive: true });
