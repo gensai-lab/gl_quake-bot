@@ -46,22 +46,21 @@ export function regionText(regions) {
 export function card(d, serial) {
   const lv = d.maxInt ? '震度' + (INTLABEL[d.maxInt] || d.maxInt) : null;
   const where = d.hy && d.hy.name ? d.hy.name : null;
-  const L = [];
-  L.push(where ? `${jstText(d.origin)}、${where}で地震がありました。` : `${jstText(d.origin)}、地震がありました。`);
+  const P = [];   // 段落ごとに空行を入れる
+  P.push([where ? `${jstText(d.origin)}、${where}で地震がありました。` : `${jstText(d.origin)}、地震がありました。`]);
   if (lv) {
-    if (d.head === 'VXSE51') { if (d.topRegions && d.topRegions.length) L.push(`この地震で、${lv}を${regionText(d.topRegions)}で観測しています。`); }
-    else if (d.topCities && d.topCities.length) L.push(`この地震で、${lv}を${cityText(d.topCities)}で観測しています。`);
+    if (d.head === 'VXSE51') { if (d.topRegions && d.topRegions.length) P.push([`この地震で、${lv}を${regionText(d.topRegions)}で観測しています。`]); }
+    else if (d.topCities && d.topCities.length) P.push([`この地震で、${lv}を${cityText(d.topCities)}で観測しています。`]);
   }
-  if (d.head !== 'VXSE51') L.push(`震源地：${where || '調査中'}`, `深さ　：${d.depth}`, `規模　：${d.mag}`);
-  L.push(TSUNAMI[d.tsunami] || TSUNAMI_UNKNOWN);
-  if (d.eew) L.push('この地震で、緊急地震速報が発表されています。');
-  if (d.enchi) L.push('この情報は遠地地震に関するものです。');
+  if (d.head !== 'VXSE51') P.push([`震源地：${where || '調査中'}`, `深さ　：${d.depth}`, `規模　：${d.mag}`]);
+  const tail = [TSUNAMI[d.tsunami] || TSUNAMI_UNKNOWN];
+  if (d.eew) tail.push('この地震で、緊急地震速報が発表されています。');
+  if (d.enchi) tail.push('この情報は遠地地震に関するものです。');
+  P.push(tail);
   return {
     title: (d.enchi ? '【遠地】' : '') + (TITLE[d.head] || '地震情報'),
-    description: L.join('\n').slice(0, 4000),
+    description: P.map(p => p.join('\n')).join('\n\n').slice(0, 4000),
     color: COLOR[d.maxInt] || 0x555555,
-    image: { url: 'attachment://quake.png' },
-    footer: { text: `GenLab Quake Bot　第${serial}報` },
-    timestamp: new Date().toISOString()
+    image: { url: 'attachment://quake.png' }
   };
 }
