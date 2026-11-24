@@ -42,6 +42,7 @@ async function api(p, q = {}) {
 }
 
 // ---- 素材を取得して、同一オリジンのローカルサーバーから配る（canvasを汚染させないため） ----
+const failed = [];
 async function download(f) {
   const dst = path.join(WORK, 'data', f);
   await fs.mkdir(path.dirname(dst), { recursive: true });
